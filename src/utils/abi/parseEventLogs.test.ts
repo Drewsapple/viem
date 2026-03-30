@@ -1,10 +1,10 @@
+import type { Address } from 'abitype'
 import { describe, expect, test } from 'vitest'
-
 import { anvilMainnet } from '~test/anvil.js'
 import { getLogs } from '../../actions/public/getLogs.js'
 import type { Log } from '../../types/log.js'
 import type { RpcLog } from '../../types/rpc.js'
-import { parseEventLogs } from './parseEventLogs.js'
+import { type MinimalLog, parseEventLogs } from './parseEventLogs.js'
 
 const client = anvilMainnet.getClient()
 
@@ -1311,5 +1311,118 @@ describe('RpcLog inputs', () => {
     expect(typeof parsedLogs[1].blockNumber).toBe('bigint')
     expect(parsedLogs[0].blockNumber).toBe(1n)
     expect(parsedLogs[1].blockNumber).toBe(2n)
+  })
+})
+
+describe('MinimalLog inputs', () => {
+  test('formats hex-encoded minimalLog fields to native types', () => {
+    const minimalLog = {
+      address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+      topics: [
+        '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',
+        '0x0000000000000000000000009a772018fbd77fcd2d25657e5c547baff3fd7d16',
+        '0x00000000000000000000000051c72848c68a965f66fa7a88855f9f7784502a7f',
+      ],
+      data: '0x0000000000000000000000000000000000000000000000000000001c0a6ed6ca',
+    } as const satisfies MinimalLog & { address: Address }
+
+    const [log] = parseEventLogs({
+      abi,
+      logs: [minimalLog],
+    })
+
+    // decoded event data should still work
+    expect(log.eventName).toBe('Transfer')
+    expect(log.args).toEqual({
+      from: '0x9a772018FbD77fcD2d25657e5C547BAfF3Fd7D16',
+      to: '0x51C72848c68a965f66FA7a88855F9f7784502a7F',
+      value: 120434120394n,
+    })
+  })
+
+  test('handles mixed RpcLog, Log, and MinimalLog inputs', () => {
+    const rpcLog = {
+      address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+      topics: [
+        '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',
+        '0x0000000000000000000000009a772018fbd77fcd2d25657e5c547baff3fd7d16',
+        '0x00000000000000000000000051c72848c68a965f66fa7a88855f9f7784502a7f',
+      ],
+      data: '0x0000000000000000000000000000000000000000000000000000001c0a6ed6ca',
+      blockHash:
+        '0xcefce01338b9da7553647cf3912ae562abaa0139fc7360f1ca279a609473ef3f',
+      blockNumber: '0x1' as const,
+      transactionHash:
+        '0x5a85da72e82150fc8272f4baa637f0bb9e5b7159912650f2c11f45e7a2b6d1a5',
+      transactionIndex: '0x0' as const,
+      logIndex: '0x0' as const,
+      removed: false,
+    } as const satisfies RpcLog
+
+    const formattedLog: Log = {
+      address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+      topics: [
+        '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',
+        '0x0000000000000000000000009a772018fbd77fcd2d25657e5c547baff3fd7d16',
+        '0x00000000000000000000000051c72848c68a965f66fa7a88855f9f7784502a7f',
+      ],
+      data: '0x0000000000000000000000000000000000000000000000000000001c0a6ed6ca',
+      blockHash:
+        '0xcefce01338b9da7553647cf3912ae562abaa0139fc7360f1ca279a609473ef3f',
+      blockNumber: 2n,
+      transactionHash:
+        '0xcdd096880f66c302c214338b8f860f39757aa10bc5f14561b21a42be88ef3f6a',
+      transactionIndex: 0,
+      logIndex: 1,
+      removed: false,
+    }
+    const minimalLog = {
+      address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+      topics: [
+        '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',
+        '0x0000000000000000000000009a772018fbd77fcd2d25657e5c547baff3fd7d16',
+        '0x00000000000000000000000051c72848c68a965f66fa7a88855f9f7784502a7f',
+      ],
+      data: '0x0000000000000000000000000000000000000000000000000000001c0a6ed6ca',
+    } as const satisfies MinimalLog & { address: Address }
+
+    const parsedLogs = parseEventLogs({
+      abi,
+      logs: [rpcLog, formattedLog, minimalLog],
+    })
+
+    expect(parsedLogs).toHaveLength(3)
+    expect(typeof parsedLogs[0].blockNumber).toBe('bigint')
+    expect(typeof parsedLogs[1].blockNumber).toBe('bigint')
+    expect(typeof parsedLogs[2]).not.toHaveProperty('blockNumber') // MinimalLog doesn't have blockNumber
+    expect(parsedLogs[0].blockNumber).toBe(1n)
+    expect(parsedLogs[1].blockNumber).toBe(2n)
+  })
+  test('minimalLog extra properties are passed through unchanged', () => {
+    const minimalLogWithExtraProps = {
+      address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+      topics: [
+        '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',
+        '0x0000000000000000000000009a772018fbd77fcd2d25657e5c547baff3fd7d16',
+        '0x00000000000000000000000051c72848c68a965f66fa7a88855f9f7784502a7f',
+      ],
+      data: '0x0000000000000000000000000000000000000000000000000000001c0a6ed6ca',
+      extraProp: 'extraValue',
+    } as const satisfies MinimalLog & { address: Address; extraProp: string }
+
+    const [log] = parseEventLogs({
+      abi,
+      logs: [minimalLogWithExtraProps],
+    })
+
+    expect(log).toMatchObject({
+      eventName: 'Transfer',
+      args: {
+        from: '0x9a772018FbD77fc642fa0F4c5af7473C46837357',
+        to: '0x51C72848c68a965f66FA7a88855F9f7784502a7F',
+        value: 120434120394n,
+      },
+      extraProp: 'extraValue', // extra property should be preserved
+    })
   })
 })

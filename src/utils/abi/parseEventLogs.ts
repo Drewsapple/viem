@@ -1,7 +1,6 @@
 // TODO(v3): checksum address.
 
 import type { Abi, AbiEvent, AbiEventParameter, Address } from 'abitype'
-import type { ErrorType } from '../../errors/utils.js'
 import type { ContractEventName, GetEventArgs } from '../../types/contract.js'
 import type { Log } from '../../types/log.js'
 import type { Hex } from '../../types/misc.js'
@@ -11,10 +10,7 @@ import { toBytes } from '../encoding/toBytes.js'
 import { formatLog } from '../formatters/log.js'
 import { keccak256 } from '../hash/keccak256.js'
 import { toEventSelector } from '../hash/toEventSelector.js'
-import {
-  type DecodeEventLogErrorType,
-  decodeEventLog,
-} from './decodeEventLog.js'
+import { decodeEventLog } from './decodeEventLog.js'
 
 export type MinimalLog = {
   data: Hex

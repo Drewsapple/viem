@@ -12,6 +12,7 @@ import type {
   WalletGetCallsStatusReturnType,
 } from '../../types/eip1193.js'
 import type { Hex } from '../../types/misc.js'
+import { parseEventLogs } from '../../utils/abi/parseEventLogs.js'
 import { getHttpRpcClient, parseEther } from '../../utils/index.js'
 import { uid } from '../../utils/uid.js'
 import { mine } from '../index.js'
@@ -146,6 +147,59 @@ test('default', async () => {
     }
   `)
   expect(receipts!.length).toBe(3)
+})
+
+test('behavior: parseEventLogs with WalletCallReceipt logs', async () => {
+  const { contractAddress } = await deployErrorExample()
+
+  const requests: unknown[] = []
+  const client = getClient({
+    onRequest({ params }) {
+      requests.push(params)
+    },
+  })
+
+  // Send a call that emits a Transfer event
+  const { id } = await sendCalls(client, {
+    account: accounts[0].address,
+    calls: [
+      {
+        abi: ErrorsExample.abi,
+        to: contractAddress!,
+        functionName: 'simpleCustomWrite',
+      },
+    ],
+    chain: mainnet,
+  })
+
+  expect(id).toBeDefined()
+
+  await mine(testClient, { blocks: 1 })
+
+  const { receipts } = await getCallsStatus(client, { id })
+  expect(receipts).toBeDefined()
+  expect(receipts!.length).toBe(1)
+
+  // Get logs from the WalletCallReceipt - these are minimal logs without
+  // block metadata (just address, data, topics)
+  const logs = receipts![0].logs
+
+  // Should be able to parse logs directly without type casting
+  const parsedLogs = parseEventLogs({
+    abi: ErrorsExample.abi,
+    eventName: 'Transfer',
+    logs, // No type casting needed!
+  })
+
+  expect(parsedLogs.length).toBeGreaterThanOrEqual(1)
+  expect(parsedLogs[0].eventName).toBe('Transfer')
+  expect(parsedLogs[0].address).toBe(contractAddress!.toLowerCase())
+
+  // Verify decoded args are present
+  expect(parsedLogs[0].args).toBeDefined()
+  expect(parsedLogs[0].args).toHaveProperty('from')
+  expect(parsedLogs[0].args).toHaveProperty('to')
+  expect(parsedLogs[0].args).toHaveProperty('value')
 })
 
 describe('behavior: eth_sendTransaction fallback', () => {
