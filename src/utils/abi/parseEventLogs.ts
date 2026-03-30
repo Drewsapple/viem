@@ -4,6 +4,7 @@ import type { Abi, AbiEvent, AbiEventParameter, Address } from 'abitype'
 import type { ErrorType } from '../../errors/utils.js'
 import type { ContractEventName, GetEventArgs } from '../../types/contract.js'
 import type { Log } from '../../types/log.js'
+import type { Hex } from '../../types/misc.js'
 import type { RpcLog } from '../../types/rpc.js'
 import { isAddressEqual } from '../address/isAddressEqual.js'
 import { toBytes } from '../encoding/toBytes.js'
@@ -14,6 +15,11 @@ import {
   type DecodeEventLogErrorType,
   decodeEventLog,
 } from './decodeEventLog.js'
+
+export type MinimalLog = {
+  data: Hex
+  topics: [signature: Hex, ...args: Hex[]] | []
+}
 
 export type ParseEventLogsParameters<
   abi extends Abi | readonly unknown[] = Abi,
@@ -34,6 +40,12 @@ export type ParseEventLogsParameters<
       Required: false
     }
   >,
+  inputShape extends MinimalLog =
+    | Log
+    | RpcLog
+    | ({
+        address?: Address
+      } & MinimalLog),
 > = {
   /** Contract ABI. */
   abi: abi
@@ -46,7 +58,7 @@ export type ParseEventLogsParameters<
     | ContractEventName<abi>[]
     | undefined
   /** List of logs. */
-  logs: (Log | RpcLog)[]
+  logs: inputShape[]
   strict?: strict | boolean | undefined
 }
 
@@ -63,9 +75,31 @@ export type ParseEventLogsReturnType<
     | undefined = eventName extends ContractEventName<abi>[]
     ? eventName[number]
     : eventName,
-> = Log<bigint, number, false, undefined, strict, abi, derivedEventName>[]
-
-export type ParseEventLogsErrorType = DecodeEventLogErrorType | ErrorType
+  returnShape extends {
+    topics: [signature: Hex, ...args: Hex[]] | []
+  } = Log<bigint, number, false, undefined, strict, abi, derivedEventName>,
+> = (returnShape extends Log<
+  bigint,
+  number,
+  false,
+  undefined,
+  strict,
+  abi,
+  derivedEventName
+>
+  ? Log<bigint, number, false, undefined, strict, abi, derivedEventName>
+  : returnShape &
+      GetEventArgs<
+        abi,
+        derivedEventName extends ContractEventName<abi>
+          ? derivedEventName
+          : ContractEventName<abi>,
+        {
+          EnableUnion: false
+          IndexedOnly: false
+          Required: strict extends boolean ? strict : false
+        }
+      >)[]
 
 /**
  * Extracts & decodes logs matching the provided signature(s) (`abi` + optional `eventName`)
@@ -98,9 +132,48 @@ export function parseEventLogs<
     | ContractEventName<abi>
     | ContractEventName<abi>[]
     | undefined = undefined,
+  inputShape extends MinimalLog & {
+    blockNumber?: Hex | bigint | null | undefined
+  } =
+    | Log
+    | RpcLog
+    | ({
+        address?: Address | undefined
+        blockNumber?: bigint | null | undefined
+      } & MinimalLog),
 >(
-  parameters: ParseEventLogsParameters<abi, eventName, strict>,
-): ParseEventLogsReturnType<abi, eventName, strict> {
+  parameters: ParseEventLogsParameters<
+    abi,
+    eventName,
+    strict,
+    GetEventArgs<
+      abi,
+      eventName extends ContractEventName<abi>
+        ? eventName
+        : ContractEventName<abi>,
+      {
+        EnableUnion: true
+        IndexedOnly: false
+        Required: false
+      }
+    >,
+    inputShape
+  >,
+): inputShape extends Log | RpcLog
+  ? ParseEventLogsReturnType<abi, eventName, strict>
+  : eventName extends undefined
+    ? ParseEventLogsReturnType<abi, eventName, strict>
+    : ParseEventLogsReturnType<
+        abi,
+        eventName,
+        strict,
+        eventName extends ContractEventName<abi>
+          ? eventName
+          : eventName extends ContractEventName<abi>[]
+            ? eventName[number]
+            : ContractEventName<abi>,
+        inputShape
+      > {
   const { abi, args, logs, strict = true } = parameters
 
   const eventName = (() => {
@@ -118,11 +191,14 @@ export function parseEventLogs<
 
   return logs
     .map((log) => {
+      const needsFormat =
+        'blockNumber' in log && typeof log.blockNumber === 'string'
       // Normalize RpcLog (hex-encoded quantities) to Log (bigint/number).
       // When logs come directly from an RPC response (e.g. eth_getLogs),
       // fields like blockNumber are hex strings instead of bigints.
-      const formattedLog =
-        typeof log.blockNumber === 'string' ? formatLog(log as RpcLog) : log
+      const formattedLog = needsFormat
+        ? formatLog(log as unknown as RpcLog)
+        : log
 
       // Find all matching ABI items with the same selector.
       // Multiple events can share the same selector but differ in indexed parameters
@@ -192,11 +268,21 @@ export function parseEventLogs<
 
       return { ...event, ...formattedLog }
     })
-    .filter(Boolean) as unknown as ParseEventLogsReturnType<
-    abi,
-    eventName,
-    strict
-  >
+    .filter(Boolean) as unknown as inputShape extends Log | RpcLog
+    ? ParseEventLogsReturnType<abi, eventName, strict>
+    : eventName extends undefined
+      ? ParseEventLogsReturnType<abi, eventName, strict>
+      : ParseEventLogsReturnType<
+          abi,
+          eventName,
+          strict,
+          eventName extends ContractEventName<abi>
+            ? eventName
+            : eventName extends ContractEventName<abi>[]
+              ? eventName[number]
+              : ContractEventName<abi>,
+          inputShape
+        >
 }
 
 function includesArgs(parameters: {

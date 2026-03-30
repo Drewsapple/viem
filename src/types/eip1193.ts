@@ -126,7 +126,7 @@ export type WalletCallReceipt<quantity = Hex, status = Hex> = {
   logs: {
     address: Hex
     data: Hex
-    topics: Hex[]
+    topics: [signature: Hex, ...args: Hex[]] | []
   }[]
   status: status
   blockHash: Hex
